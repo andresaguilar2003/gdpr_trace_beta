@@ -542,7 +542,7 @@ class EnrichmentView(QWidget):
         panel_layout.addWidget(self.enrichment_tree)
         self.enrichment_tree.setVisible(False)
 
-        self.enrichment_info_button = QPushButton("VER INFORMACIÓN DEL ENRIQUECIMIENTO")
+        self.enrichment_info_button = QPushButton("INFO DEL ENRIQUECIMIENTO")
         self.enrichment_info_button.setObjectName("SecBtn")
         self.enrichment_info_button.setEnabled(False)
         self.enrichment_info_button.setCursor(Qt.CursorShape.PointingHandCursor)

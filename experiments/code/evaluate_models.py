@@ -16,9 +16,12 @@ from sklearn.metrics import (
     precision_recall_fscore_support,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+CODE_DIR = Path(__file__).resolve().parent
+if str(CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(CODE_DIR))
 
 from app.services.trace_builder import build_traces_from_pm4py_log
 from app.services.trace_context_inferer import TraceContextInferer
@@ -27,7 +30,7 @@ from app.services.ai.roberta_trace_context_inferer import RobertaTraceContextInf
 from app.services.ai.roberta_activity_classifier import RobertaActivityClassifier
 from app.specifications.activity_types import ActivityType
 from app.specifications.data_categories import DataCategory
-from experiments.generate_pdf_report import generate_pdf_report
+from generate_pdf_report import generate_pdf_report
 
 
 DATASETS = {
@@ -564,29 +567,50 @@ def save_confusion_matrix(y_true, y_pred, labels, title, output_path):
 def save_metrics_barplot(metrics_rows, task, output_path):
     selected = [row for row in metrics_rows if row["task"] == task]
     metrics = ["accuracy", "precision_macro", "recall_macro", "f1_macro"]
-    x = range(len(metrics))
+    metric_labels = ["Accuracy", "Precision\nmacro", "Recall\nmacro", "F1-score\nmacro"]
+    x = list(range(len(metrics)))
     models = sorted({row["model"] for row in selected})
     width = 0.35
 
-    plt.figure(figsize=(9, 5))
+    fig, ax = plt.subplots(figsize=(8, 5))
 
     for index, model in enumerate(models):
         row = next(item for item in selected if item["model"] == model)
         offset = (index - (len(models) - 1) / 2) * width
-        plt.bar(
+        bars = ax.bar(
             [value + offset for value in x],
             [row[metric] for metric in metrics],
             width=width,
             label=model,
         )
+        ax.bar_label(
+            bars,
+            labels=[f"{row[metric]:.2f}" for metric in metrics],
+            padding=3,
+            fontsize=11,
+            fontweight="bold",
+        )
 
-    plt.title(f"Model comparison - {task}")
-    plt.ylabel("Score")
-    plt.ylim(0, 1.05)
-    plt.xticks(list(x), metrics, rotation=20, ha="right")
-    plt.legend()
+    title = "ActivityType metrics comparison" if task == "activity_type" else "Context metrics comparison"
+    ax.set_title(title, fontsize=18, fontweight="bold", pad=14)
+    ax.set_xlabel("Metric", fontsize=15, fontweight="bold", labelpad=10)
+    ax.set_ylabel("Score", fontsize=15, fontweight="bold", labelpad=8)
+    ax.set_ylim(0, 1.12)
+    ax.set_xticks(x)
+    ax.set_xticklabels(metric_labels, rotation=15, ha="right", fontsize=13, fontweight="bold")
+    ax.tick_params(axis="y", labelsize=13)
+    for tick in ax.get_yticklabels():
+        tick.set_fontweight("bold")
+    ax.legend(
+        fontsize=13,
+        frameon=True,
+        loc="lower right",
+        borderaxespad=0.8,
+    )
+    ax.grid(axis="y", linestyle="--", linewidth=0.7, alpha=0.35)
+    ax.set_axisbelow(True)
     plt.tight_layout()
-    plt.savefig(output_path, dpi=180)
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
 
 
