@@ -1,6 +1,8 @@
 from app.models.gdpr_event import GDPREvent
 from app.models.user_right_type import UserRightType
+from app.specifications.activity_gdpr_mapping import ACTIVITY_GDPR_PATTERNS
 from app.specifications.activity_types import ActivityType
+from app.specifications.data_categories import DataCategory
 from app.specifications.event_position import EventPosition
 
 
@@ -53,6 +55,132 @@ class GDPREnrichmentValidator:
             "warnings": warnings
         }
 
+    @staticmethod
+    def _name(event):
+        return getattr(event, "name", None)
+
+    @staticmethod
+    def _order(event):
+        return getattr(event, "order", 0)
+
+    @staticmethod
+    def _position(event):
+        position = getattr(event, "position", None)
+        if isinstance(position, EventPosition):
+            return position
+        if position is None:
+            return None
+
+        value = getattr(position, "value", position)
+        normalized = str(value).split(".")[-1].upper()
+
+        if normalized == "BEFORE":
+            return EventPosition.BEFORE
+        if normalized == "AFTER":
+            return EventPosition.AFTER
+        return None
+
+    @staticmethod
+    def _activity_type(event):
+        if isinstance(event, GDPREvent):
+            return ActivityType.GDPR_COMPLIANCE
+
+        activity = getattr(event, "activity", None)
+        activity_type = getattr(activity, "type", None) or getattr(activity, "activity_type", None)
+        if isinstance(activity_type, ActivityType):
+            return activity_type
+        if activity_type is None:
+            activity_type = getattr(event, "activity_type", None)
+        if isinstance(activity_type, ActivityType):
+            return activity_type
+        if activity_type is None:
+            return None
+
+        normalized = str(activity_type).split(".")[-1].upper()
+        return ActivityType.__members__.get(normalized)
+
+    @staticmethod
+    def _is_gdpr_event(event):
+        if isinstance(event, GDPREvent):
+            return True
+        return GDPREnrichmentValidator._activity_type(event) == ActivityType.GDPR_COMPLIANCE
+
+    @staticmethod
+    def _context_value(trace, attr_name):
+        ctx = getattr(trace, "context", None)
+        value = getattr(ctx, attr_name, None) if ctx is not None else None
+        if value is not None:
+            return value
+
+        aliases = {
+            "purpose": ["gdpr:purpose", "gdpr:processing_purpose", "gdpr:processingPurpose"],
+            "legal_basis": ["gdpr:legal_basis", "gdpr:legalBasis"],
+            "data_category": ["gdpr:data_category", "gdpr:dataCategory"],
+            "data_subject_type": ["gdpr:data_subject_type", "gdpr:dataSubjectType"],
+            "processing_operation": ["gdpr:processing_operation", "gdpr:processingOperation"],
+            "processing_domain": ["gdpr:processing_domain", "gdpr:processingDomain"],
+            "has_third_party_recipients": [
+                "gdpr:has_third_party_recipients",
+                "gdpr:third_party_recipients",
+                "gdpr:hasThirdPartyRecipients",
+            ],
+            "international_transfer": ["gdpr:international_transfer", "gdpr:internationalTransfer"],
+            "retention_period": ["gdpr:retention_period", "gdpr:retentionPeriod"],
+            "transfer_safeguard": ["gdpr:transfer_safeguard", "gdpr:transferSafeguard"],
+            "consent_status": ["gdpr:consent_status", "gdpr:consentStatus"],
+        }
+
+        for attributes in (
+            getattr(trace, "attributes", None),
+            getattr(trace, "log_attributes", None),
+        ):
+            if not isinstance(attributes, dict):
+                continue
+            for key in aliases.get(attr_name, [f"gdpr:{attr_name}"]):
+                if key in attributes:
+                    return attributes[key]
+
+        return None
+
+    @staticmethod
+    def _expected_position(gdpr_event_name):
+        for rules in ACTIVITY_GDPR_PATTERNS.values():
+            for rule in rules:
+                if rule.get("event") == gdpr_event_name:
+                    return rule.get("position")
+        return None
+
+    @staticmethod
+    def _normalized_value(value):
+        if value is None:
+            return ""
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        raw_value = getattr(value, "value", value)
+        normalized = str(raw_value).strip()
+        if "." in normalized:
+            normalized = normalized.split(".")[-1]
+        return normalized.lower()
+
+    @staticmethod
+    def _is_sensitive_category(value):
+        normalized = GDPREnrichmentValidator._normalized_value(value)
+        return normalized in {"health", "special", "biometric", "genetic", "children", "vulnerable"}
+
+    @staticmethod
+    def _is_standard_category(value):
+        return GDPREnrichmentValidator._normalized_value(value) == "standard"
+
+    @staticmethod
+    def _is_truthy(value):
+        if isinstance(value, bool):
+            return value
+        return GDPREnrichmentValidator._normalized_value(value) in {"true", "1", "yes", "y"}
+
+    @staticmethod
+    def _is_consent_legal_basis(value):
+        return GDPREnrichmentValidator._normalized_value(value) == "consent"
+
     # =====================================================
     # CASE_START RULES
     # =====================================================
@@ -101,6 +229,7 @@ class GDPREnrichmentValidator:
 
             has_event = any(
                 e.name == "verify_legal_basis"
+                and GDPREnrichmentValidator._position(e) == EventPosition.AFTER
                 and e.order > event.order
                 for e in trace.events
             )
@@ -154,8 +283,6 @@ class GDPREnrichmentValidator:
         violations = []
         warnings = []
 
-        ctx = trace.context
-
         # --------------------------------------------------
         # localizar CASE_END
         # --------------------------------------------------
@@ -163,16 +290,16 @@ class GDPREnrichmentValidator:
         case_end_events = [
             e
             for e in trace.events
-            if not isinstance(e, GDPREvent) 
-            and hasattr(e, 'activity') 
-            and e.activity 
-            and e.activity.type == ActivityType.CASE_END
+            if (
+                not GDPREnrichmentValidator._is_gdpr_event(e)
+                and GDPREnrichmentValidator._activity_type(e) == ActivityType.CASE_END
+            )
         ]
 
         for event in case_end_events:
 
             # 1. Regla: CASE_END_MISSING_RETENTION_CONTEXT
-            if ctx.retention_period is None:
+            if GDPREnrichmentValidator._context_value(trace, "retention_period") is None:
                 violations.append({
                     "rule": "CASE_END_MISSING_RETENTION_CONTEXT",
                     "event": "CASE_END",
@@ -187,9 +314,9 @@ class GDPREnrichmentValidator:
                 e
                 for e in trace.events
                 if (
-                    isinstance(e, GDPREvent)
+                    GDPREnrichmentValidator._is_gdpr_event(e)
                     and e.name == "retention_period_verify"
-                    and e.position == EventPosition.BEFORE
+                    and GDPREnrichmentValidator._position(e) == EventPosition.BEFORE
                 )
             ]
 
@@ -210,14 +337,14 @@ class GDPREnrichmentValidator:
             # -------------------------
             # confirm_data_erasure (CONDICIONAL)
             # -------------------------
-            if ctx.retention_period is not None:
+            if GDPREnrichmentValidator._context_value(trace, "retention_period") is not None:
                 erasure_events = [
                     e
                     for e in trace.events
                     if (
-                        isinstance(e, GDPREvent)
+                        GDPREnrichmentValidator._is_gdpr_event(e)
                         and e.name == "confirm_data_erasure"
-                        and e.position == EventPosition.BEFORE
+                        and GDPREnrichmentValidator._position(e) == EventPosition.BEFORE
                     )
                 ]
 
@@ -250,11 +377,25 @@ class GDPREnrichmentValidator:
         violations = []
         warnings = []
 
-        legal_basis = (trace.context.legal_basis or "").lower()
+        legal_basis_value = GDPREnrichmentValidator._context_value(trace, "legal_basis")
+        legal_basis = GDPREnrichmentValidator._normalized_value(legal_basis_value)
+        requires_consent = GDPREnrichmentValidator._is_consent_legal_basis(legal_basis_value)
+        collection_events = [
+            event
+            for event in trace.events
+            if (
+                not GDPREnrichmentValidator._is_gdpr_event(event)
+                and GDPREnrichmentValidator._activity_type(event) == ActivityType.DATA_COLLECTION
+            )
+        ]
+
+        if not collection_events:
+            return violations, warnings
 
         # 1. Comprobaciones globales de existencia en la traza
         has_consent = any(
-            hasattr(e, 'name') and e.name == "check_consent"
+            GDPREnrichmentValidator._is_gdpr_event(e)
+            and getattr(e, "name", None) == "check_consent"
             for e in trace.events
         )
 
@@ -276,35 +417,19 @@ class GDPREnrichmentValidator:
                 "recommendation": "Inject a 'privacy_notice_disclosed' event into the trace. GDPR Art. 13 mandates that data subjects must be provided with clear and transparent privacy information."
             })
 
-        # REGLA CONSENTIMIENTO
-        if "consent" in legal_basis:
-            if not has_consent:
-                violations.append({
-                    "rule": "DATA_COLLECTION_CONSENT_REQUIRED",
-                    "event": "trace",
-                    "message": "Missing check_consent in trace",
-                    "recommendation": "Inject a 'check_consent' event into the trace. When relying on Consent, GDPR Art. 7 strictly prohibits execution without verifying explicit authorization."
-                })
-        else:
-            if has_consent:
-                warnings.append({
-                    "rule": "DATA_COLLECTION_CONSENT_FORBIDDEN",
-                    "event": "trace",
-                    "message": f"check_consent should NOT exist when legal_basis is '{legal_basis}'",
-                    "recommendation": f"Remove the 'check_consent' activity. Since the current legal basis is established as '{legal_basis}', invoking consent verification causes unnecessary data processing under GDPR Art. 5/25."
-                })
+        if not requires_consent and has_consent:
+            warnings.append({
+                "rule": "DATA_COLLECTION_CONSENT_FORBIDDEN",
+                "event": "trace",
+                "message": f"check_consent should NOT exist when legal_basis is '{legal_basis or 'undefined'}'",
+                "recommendation": f"Remove the 'check_consent' activity. Since the current legal basis is established as '{legal_basis or 'undefined'}', invoking consent verification causes unnecessary data processing under GDPR Art. 5/25."
+            })
 
 
         # -----------------------------------------------------------
         # BUCLE PARA EVALUAR REGLAS DE POSICIÓN / FLUJO CRONOLÓGICO
         # -----------------------------------------------------------
-        for event in trace.events:
-
-            if not hasattr(event, 'activity') or not event.activity:
-                continue
-                
-            if event.activity.type != ActivityType.DATA_COLLECTION:
-                continue
+        for event in collection_events:
 
             # -------------------------
             # RULE 1: privacy_notice_disclosed (Validación de orden posicional si existe)
@@ -312,7 +437,7 @@ class GDPREnrichmentValidator:
             if has_notice:
                 valid_notice_position = any(
                     hasattr(e, 'name') and e.name == "privacy_notice_disclosed"
-                    and hasattr(e, 'position') and e.position == EventPosition.AFTER
+                    and GDPREnrichmentValidator._position(e) == GDPREnrichmentValidator._expected_position("privacy_notice_disclosed")
                     and getattr(e, 'order', 0) >= getattr(event, 'order', 0)
                     for e in trace.events
                 )
@@ -326,12 +451,13 @@ class GDPREnrichmentValidator:
                     })
 
             # -------------------------
-            # RULE 2 & 3: check_consent (Validación de orden posicional si existe)
+            # RULE 2 & 3: check_consent (required only for legal_basis == consent)
             # -------------------------
-            if "consent" in legal_basis and has_consent:
+            if requires_consent:
                 valid_consent_position = any(
-                    hasattr(e, 'name') and e.name == "check_consent"
-                    and hasattr(e, 'position') and e.position == EventPosition.BEFORE
+                    GDPREnrichmentValidator._is_gdpr_event(e)
+                    and getattr(e, "name", None) == "check_consent"
+                    and GDPREnrichmentValidator._position(e) == GDPREnrichmentValidator._expected_position("check_consent")
                     and getattr(e, 'order', 0) < getattr(event, 'order', 0)
                     for e in trace.events
                 )
@@ -340,8 +466,8 @@ class GDPREnrichmentValidator:
                     violations.append({
                         "rule": "DATA_COLLECTION_CONSENT_REQUIRED",
                         "event": event.name,
-                        "message": "check_consent exists but it is not positioned BEFORE data collection",
-                        "recommendation": f"Move 'check_consent' so its position is BEFORE the collection activity '{event.name}'."
+                        "message": "Missing check_consent BEFORE data collection while legal_basis is consent",
+                        "recommendation": f"Inject or move 'check_consent' so it is a GDPR event with position BEFORE and order lower than the collection activity '{event.name}'."
                     })
 
             # -------------------------
@@ -429,13 +555,13 @@ class GDPREnrichmentValidator:
         violations = []
         warnings = []
 
-        data_category = trace.context.data_category
+        data_category = GDPREnrichmentValidator._context_value(trace, "data_category")
 
         for event in trace.events:
 
-            if isinstance(event, GDPREvent):
+            if GDPREnrichmentValidator._is_gdpr_event(event):
                 continue
-            if not event.activity or event.activity.type != ActivityType.DATA_PROCESSING:
+            if GDPREnrichmentValidator._activity_type(event) != ActivityType.DATA_PROCESSING:
                 continue
 
             # -------------------------
@@ -443,9 +569,9 @@ class GDPREnrichmentValidator:
             # -------------------------
 
             has_min = any(
-                isinstance(e, GDPREvent)
+                GDPREnrichmentValidator._is_gdpr_event(e)
                 and e.name == "minimisation_check"
-                and e.position == EventPosition.BEFORE
+                and GDPREnrichmentValidator._position(e) == EventPosition.BEFORE
                 and e.order < event.order
                 for e in trace.events
             )
@@ -463,18 +589,18 @@ class GDPREnrichmentValidator:
             # -------------------------
 
             has_encryption = any(
-                isinstance(e, GDPREvent)
+                GDPREnrichmentValidator._is_gdpr_event(e)
                 and e.name == "encryption_applied"
                 for e in trace.events
             )
 
             # REQUIRED
-            if data_category and data_category != "DataCategory.STANDARD":
+            if data_category and not GDPREnrichmentValidator._is_standard_category(data_category):
 
                 valid_position = any(
-                    isinstance(e, GDPREvent)
+                    GDPREnrichmentValidator._is_gdpr_event(e)
                     and e.name == "encryption_applied"
-                    and e.position == EventPosition.BEFORE
+                    and GDPREnrichmentValidator._position(e) == GDPREnrichmentValidator._expected_position("encryption_applied")
                     and e.order < event.order
                     for e in trace.events
                 )
@@ -503,13 +629,13 @@ class GDPREnrichmentValidator:
             # -------------------------
 
             has_log_related = any(
-                isinstance(e, GDPREvent)
+                GDPREnrichmentValidator._is_gdpr_event(e)
                 and e.name == "log_processing_activity"
                 for e in trace.events
             )
 
             has_log_after = any(
-                isinstance(e, GDPREvent)
+                GDPREnrichmentValidator._is_gdpr_event(e)
                 and e.name == "log_processing_activity"
                 and e.order > event.order
                 for e in trace.events
@@ -552,12 +678,11 @@ class GDPREnrichmentValidator:
         violations = []
         warnings = []
 
-        ctx = trace.context
-        data_category = ctx.data_category
+        data_category = GDPREnrichmentValidator._context_value(trace, "data_category")
 
         access_control_events = [
             e for e in trace.events
-            if isinstance(e, GDPREvent) and e.name == "access_control_check"
+            if GDPREnrichmentValidator._is_gdpr_event(e) and e.name == "access_control_check"
         ]
         
         if len(access_control_events) > 1:
@@ -570,10 +695,10 @@ class GDPREnrichmentValidator:
 
         for event in trace.events:
 
-            if isinstance(event, GDPREvent):
+            if GDPREnrichmentValidator._is_gdpr_event(event):
                 continue
 
-            if not event.activity or event.activity.type != ActivityType.DATA_ACCESS:
+            if GDPREnrichmentValidator._activity_type(event) != ActivityType.DATA_ACCESS:
                 continue
 
             # -------------------------
@@ -581,7 +706,7 @@ class GDPREnrichmentValidator:
             # -------------------------
 
             has_access_control = any(
-                isinstance(e, GDPREvent)
+                GDPREnrichmentValidator._is_gdpr_event(e)
                 and e.name == "access_control_check"
                 for e in trace.events
             )
@@ -590,12 +715,12 @@ class GDPREnrichmentValidator:
             # CASO 1: REQUIRED
             # -------------------------
 
-            if data_category in ["DataCategory.HEALTH", "DataCategory.SPECIAL"]:
+            if GDPREnrichmentValidator._is_sensitive_category(data_category):
 
                 valid_position = any(
-                    isinstance(e, GDPREvent)
+                    GDPREnrichmentValidator._is_gdpr_event(e)
                     and e.name == "access_control_check"
-                    and e.position == EventPosition.BEFORE
+                    and GDPREnrichmentValidator._position(e) == GDPREnrichmentValidator._expected_position("access_control_check")
                     and e.order < event.order
                     for e in trace.events
                 )
@@ -662,28 +787,63 @@ class GDPREnrichmentValidator:
         violations = []
         warnings = []
 
-        ctx = trace.context
+        has_third_party_recipients = GDPREnrichmentValidator._is_truthy(
+            GDPREnrichmentValidator._context_value(trace, "has_third_party_recipients")
+        )
+        international_transfer = GDPREnrichmentValidator._normalized_value(
+            GDPREnrichmentValidator._context_value(trace, "international_transfer")
+        )
 
-        for event in trace.events:
+        has_third_party_check_global = any(
+            GDPREnrichmentValidator._is_gdpr_event(e)
+            and e.name == "check_third_party_agreement"
+            for e in trace.events
+        )
 
-            if isinstance(event, GDPREvent):
-                continue
+        has_international_check_global = any(
+            GDPREnrichmentValidator._is_gdpr_event(e)
+            and e.name == "verify_international_safeguard"
+            for e in trace.events
+        )
+        transfer_events = [
+            event
+            for event in trace.events
+            if (
+                not GDPREnrichmentValidator._is_gdpr_event(event)
+                and GDPREnrichmentValidator._activity_type(event) == ActivityType.DATA_TRANSFER
+            )
+        ]
 
-            if not event.activity or event.activity.type != ActivityType.DATA_TRANSFER:
-                continue
+        if not transfer_events and not has_third_party_recipients and has_third_party_check_global:
+            warnings.append({
+                "rule": "DATA_TRANSFER_THIRD_PARTY_FORBIDDEN",
+                "event": "trace",
+                "message": "check_third_party_agreement exists while has_third_party_recipients is false",
+                "recommendation": "Remove 'check_third_party_agreement' from the trace or restore the third-party recipient context when an external recipient is actually involved."
+            })
+
+        if not transfer_events and international_transfer != "third_country" and has_international_check_global:
+            warnings.append({
+                "rule": "DATA_TRANSFER_INTERNATIONAL_FORBIDDEN",
+                "event": "trace",
+                "message": "verify_international_safeguard exists while international_transfer is not third_country",
+                "recommendation": "Remove 'verify_international_safeguard' unless the context declares a third-country international transfer."
+            })
+
+        for event in transfer_events:
 
             # -------------------------
             # EXISTENCIA
             # -------------------------
 
             has_third_party_check = any(
-                isinstance(e, GDPREvent)
+                GDPREnrichmentValidator._is_gdpr_event(e)
                 and e.name == "check_third_party_agreement"
                 for e in trace.events
             )
 
             has_international_check = any(
-                isinstance(e, GDPREvent)
+                GDPREnrichmentValidator._is_gdpr_event(e)
                 and e.name == "verify_international_safeguard"
                 for e in trace.events
             )
@@ -692,12 +852,12 @@ class GDPREnrichmentValidator:
             # 1. THIRD PARTY AGREEMENT
             # =====================================================
 
-            if ctx.has_third_party_recipients:
+            if has_third_party_recipients:
 
                 valid_position = any(
-                    isinstance(e, GDPREvent)
+                    GDPREnrichmentValidator._is_gdpr_event(e)
                     and e.name == "check_third_party_agreement"
-                    and e.position == EventPosition.BEFORE
+                    and GDPREnrichmentValidator._position(e) == GDPREnrichmentValidator._expected_position("check_third_party_agreement")
                     and e.order < event.order
                     for e in trace.events
                 )
@@ -724,12 +884,12 @@ class GDPREnrichmentValidator:
             # 2. INTERNATIONAL SAFEGUARD
             # =====================================================
 
-            if ctx.international_transfer == "third_country":
+            if international_transfer == "third_country":
 
                 valid_position = any(
-                    isinstance(e, GDPREvent)
+                    GDPREnrichmentValidator._is_gdpr_event(e)
                     and e.name == "verify_international_safeguard"
-                    and e.position == EventPosition.BEFORE
+                    and GDPREnrichmentValidator._position(e) == GDPREnrichmentValidator._expected_position("verify_international_safeguard")
                     and e.order < event.order
                     for e in trace.events
                 )
@@ -821,13 +981,10 @@ class GDPREnrichmentValidator:
 
         for event in trace.events:
 
-            if isinstance(event, GDPREvent):
+            if GDPREnrichmentValidator._is_gdpr_event(event):
                 continue
 
-            if not event.activity:
-                continue
-
-            if event.activity.type != ActivityType.USER_RIGHT_REQUEST:
+            if GDPREnrichmentValidator._activity_type(event) != ActivityType.USER_RIGHT_REQUEST:
                 continue
 
             # -------------------------------------------------
@@ -835,7 +992,7 @@ class GDPREnrichmentValidator:
             # -------------------------------------------------
 
             has_response = any(
-                isinstance(e, GDPREvent)
+                GDPREnrichmentValidator._is_gdpr_event(e)
                 and e.name == "respond_user_right"
                 and e.order > event.order
                 for e in trace.events
@@ -854,7 +1011,7 @@ class GDPREnrichmentValidator:
             # -------------------------------------------------
 
             has_identity = any(
-                isinstance(e, GDPREvent)
+                GDPREnrichmentValidator._is_gdpr_event(e)
                 and e.name == "verify_request_identity"
                 and e.order < event.order
                 for e in trace.events

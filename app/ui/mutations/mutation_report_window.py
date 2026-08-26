@@ -1,8 +1,11 @@
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
+from types import SimpleNamespace
+from html import escape
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, 
-    QTableWidget, QTableWidgetItem, QTextEdit, QDialog, QPushButton, QFrame
+    QTableWidget, QTableWidgetItem, QTextEdit, QDialog, QPushButton, QFrame,
+    QHeaderView
 )
 
 class TraceDetailDialog(QDialog):
@@ -35,37 +38,18 @@ class TraceDetailDialog(QDialog):
         severity_lbl.setText(f"SEVERITY: <span style='color:{sev_color}; font-weight:bold;'>{display_severity}</span>")
         severity_lbl.setTextFormat(Qt.RichText)
 
-        validation_mode = trace_report.validator_result.get("validation_mode", "deterministic")
-        mode_lbl = QLabel(f"VALIDATOR: <span style='color:#58a6ff; font-weight:bold;'>{validation_mode.upper()}</span>")
+        mode_lbl = QLabel("VALIDATOR: <span style='color:#58a6ff; font-weight:bold;'>DETERMINISTIC</span>")
         mode_lbl.setTextFormat(Qt.RichText)
 
-        impact = TraceDetailDialog._impact_text(trace_report.validator_result)
-        impact_color = (
-            "#56d364" if impact == "0_COMPLIANT"
-            else "#ff7b72" if impact == "1_VIOLATION"
-            else "#d29922" if impact == "2_WARNING"
-            else "#8b949e"
+        rec_lbl = QLabel(
+            "SUMMARY: "
+            f"<span style='color:#8b949e;'>{escape(self.issue_summary(trace_report, max_items=4))}</span>"
         )
-        impact_lbl = QLabel(f"AI IMPACT: <span style='color:{impact_color}; font-weight:bold;'>{impact}</span>")
-        impact_lbl.setTextFormat(Qt.RichText)
-
-        agreement = trace_report.validator_result.get("agrees_with_ai")
-        agreement_lbl = None
-        if agreement is not None:
-            agreement_color = "#56d364" if agreement else "#d29922"
-            agreement_lbl = QLabel(f"AI AGREEMENT: <span style='color:{agreement_color}; font-weight:bold;'>{'YES' if agreement else 'NO'}</span>")
-            agreement_lbl.setTextFormat(Qt.RichText)
-
-        rec_lbl = QLabel(f"💡 <b>RECOMMENDATION:</b><br><span style='color:#8b949e;'>{trace_report.recommendation}</span>")
         rec_lbl.setWordWrap(True)
         rec_lbl.setTextFormat(Qt.RichText)
 
         info_layout.addWidget(mutation_lbl)
         info_layout.addWidget(mode_lbl)
-        if impact != "-":
-            info_layout.addWidget(impact_lbl)
-        if agreement_lbl:
-            info_layout.addWidget(agreement_lbl)
         info_layout.addWidget(severity_lbl)
         info_layout.addWidget(rec_lbl)
         layout.addWidget(info_block)
@@ -80,6 +64,10 @@ class TraceDetailDialog(QDialog):
         details = QTextEdit()
         details.setObjectName("LogViewer")
         details.setReadOnly(True)
+        details.setMaximumHeight(360)
+        details.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        details.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        details.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         html_content = ["<body style='color:#c9d1d9; font-family:monospace;'>"]
 
@@ -92,9 +80,9 @@ class TraceDetailDialog(QDialog):
         if violations:
             for v in violations:
                 html_content.append(f"<div style='margin-bottom: 10px; background-color: #2c1919; padding: 8px; border-left: 4px solid #ff7b72; border-radius:4px;'>")
-                html_content.append(f"  <b style='color:#ff9e96;'>[RULE]:</b> {v['rule']}<br>")
-                html_content.append(f"  <b>[EVENT]:</b> <span style='color:#ff7b72;'>{v['event']}</span><br>")
-                html_content.append(f"  <b>[DETAILS]:</b> {v.get('message', '')}")
+                html_content.append(f"  <b style='color:#ff9e96;'>[RULE]:</b> {escape(str(v['rule']))}<br>")
+                html_content.append(f"  <b>[EVENT]:</b> <span style='color:#ff7b72;'>{escape(str(v['event']))}</span><br>")
+                html_content.append(f"  <b>[DETAILS]:</b> {escape(str(v.get('message', '')))}")
                 html_content.append(f"</div>")
         else:
             html_content.append("<p style='color:#8b949e; italic;'>No critical compliance mutations broke strict rules.</p>")
@@ -107,44 +95,12 @@ class TraceDetailDialog(QDialog):
         if warnings:
             for w in warnings:
                 html_content.append(f"<div style='margin-bottom: 10px; background-color: #2c2414; padding: 8px; border-left: 4px solid #d29922; border-radius:4px;'>")
-                html_content.append(f"  <b style='color:#f0e084;'>[RULE]:</b> {w['rule']}<br>")
-                html_content.append(f"  <b>[EVENT]:</b> <span style='color:#d29922;'>{w['event']}</span><br>")
-                html_content.append(f"  <b>[DETAILS]:</b> {w.get('message', '')}")
+                html_content.append(f"  <b style='color:#f0e084;'>[RULE]:</b> {escape(str(w['rule']))}<br>")
+                html_content.append(f"  <b>[EVENT]:</b> <span style='color:#d29922;'>{escape(str(w['event']))}</span><br>")
+                html_content.append(f"  <b>[DETAILS]:</b> {escape(str(w.get('message', '')))}")
                 html_content.append(f"</div>")
         else:
             html_content.append("<p style='color:#8b949e; italic;'>No secondary warnings found for this trace execution.</p>")
-
-        ai_result = trace_report.validator_result.get("ai_result")
-        direct_ai_result = (
-            trace_report.validator_result
-            if trace_report.validator_result.get("impact")
-            else None
-        )
-
-        if ai_result or direct_ai_result:
-            displayed_ai_result = ai_result or direct_ai_result
-            html_content.append("<br>")
-            html_content.append("<b style='color:#58a6ff; font-size:13px;'>T5 AI VALIDATOR OUTPUT</b>")
-            html_content.append("<hr style='border: 1px solid #30363d;'>")
-            html_content.append(f"<p><b>Impact:</b> {displayed_ai_result.get('impact', '-')}</p>")
-            html_content.append(f"<p><b>Raw:</b> {displayed_ai_result.get('rawResponse', '')}</p>")
-
-            ai_violations = displayed_ai_result.get("violations", [])
-            ai_warnings = displayed_ai_result.get("warnings", [])
-
-            html_content.append("<b>AI violations:</b>")
-            if ai_violations:
-                for v in ai_violations:
-                    html_content.append(f"<p>- {v.get('rule')} @ {v.get('event')}</p>")
-            else:
-                html_content.append("<p style='color:#8b949e;'>- none</p>")
-
-            html_content.append("<b>AI warnings:</b>")
-            if ai_warnings:
-                for w in ai_warnings:
-                    html_content.append(f"<p>- {w.get('rule')} @ {w.get('event')}</p>")
-            else:
-                html_content.append("<p style='color:#8b949e;'>- none</p>")
 
         html_content.append("</body>")
         details.setHtml("\n".join(html_content))
@@ -165,13 +121,34 @@ class TraceDetailDialog(QDialog):
         return "COMPLIANT" if severity == "OK" else severity
 
     @staticmethod
-    def _impact_text(validator_result):
-        impact = validator_result.get("impact")
+    def issue_summary(trace_report, max_items=3):
+        violations = trace_report.validator_result.get("violations", [])
+        warnings = trace_report.validator_result.get("warnings", [])
+        total = len(violations) + len(warnings)
+        if total == 0:
+            return "No violations or warnings detected."
 
-        if not impact and validator_result.get("ai_result"):
-            impact = validator_result["ai_result"].get("impact")
+        counters = {}
+        for issue in violations:
+            key = issue.get("mutation") or issue.get("rule") or "violation"
+            counters.setdefault(key, {"V": 0, "W": 0})
+            counters[key]["V"] += 1
+        for issue in warnings:
+            key = issue.get("mutation") or issue.get("rule") or "warning"
+            counters.setdefault(key, {"V": 0, "W": 0})
+            counters[key]["W"] += 1
 
-        return impact or "-"
+        parts = []
+        for key, counts in sorted(counters.items())[:max_items]:
+            label_parts = []
+            if counts["V"]:
+                label_parts.append(f"Vx{counts['V']}")
+            if counts["W"]:
+                label_parts.append(f"Wx{counts['W']}")
+            parts.append(f"{key} ({', '.join(label_parts)})")
+
+        suffix = "..." if len(counters) > max_items else ""
+        return f"{total} findings detected: " + "; ".join(parts) + suffix
 
 
 class MutationReportWindow(QWidget):
@@ -179,6 +156,7 @@ class MutationReportWindow(QWidget):
     def __init__(self, report):
         super().__init__()
         self.report = report
+        self.grouped_reports = self._group_reports_by_trace(report.trace_reports)
         self.setWindowTitle("Mutation Analysis & GDPR Compliance Report")
         self.resize(1200, 750)
 
@@ -200,21 +178,23 @@ class MutationReportWindow(QWidget):
         card_traces.setObjectName("SummaryCard")
         lt1 = QVBoxLayout(card_traces)
         lt1.addWidget(QLabel("<span style='color:#8b949e; font-size:10px; font-weight:bold;'>MUTATED TRACES</span>"))
-        lt1.addWidget(QLabel(f"<span style='font-size:20px; font-weight:bold; color:#58a6ff;'>{self.report.total_mutated_traces}</span>"))
+        lt1.addWidget(QLabel(f"<span style='font-size:20px; font-weight:bold; color:#58a6ff;'>{len(self.grouped_reports)}</span>"))
 
         card_violations = QFrame()
         card_violations.setObjectName("SummaryCard")
         card_violations.setStyleSheet("border-left: 3px solid #ff7b72;")
         lt2 = QVBoxLayout(card_violations)
         lt2.addWidget(QLabel("<span style='color:#8b949e; font-size:10px; font-weight:bold;'>TOTAL VIOLATIONS</span>"))
-        lt2.addWidget(QLabel(f"<span style='font-size:20px; font-weight:bold; color:#ff7b72;'>{self.report.total_violations}</span>"))
+        total_violations = sum(len(r.validator_result.get("violations", [])) for r in self.grouped_reports)
+        lt2.addWidget(QLabel(f"<span style='font-size:20px; font-weight:bold; color:#ff7b72;'>{total_violations}</span>"))
 
         card_warnings = QFrame()
         card_warnings.setObjectName("SummaryCard")
         card_warnings.setStyleSheet("border-left: 3px solid #d29922;")
         lt3 = QVBoxLayout(card_warnings)
         lt3.addWidget(QLabel("<span style='color:#8b949e; font-size:10px; font-weight:bold;'>TOTAL WARNINGS</span>"))
-        lt3.addWidget(QLabel(f"<span style='font-size:20px; font-weight:bold; color:#d29922;'>{self.report.total_warnings}</span>"))
+        total_warnings = sum(len(r.validator_result.get("warnings", [])) for r in self.grouped_reports)
+        lt3.addWidget(QLabel(f"<span style='font-size:20px; font-weight:bold; color:#d29922;'>{total_warnings}</span>"))
 
         summary_layout.addWidget(card_traces)
         summary_layout.addWidget(card_violations)
@@ -234,7 +214,11 @@ class MutationReportWindow(QWidget):
         self.severity_filter.addItems(["ALL", "VIOLATION", "WARNING", "COMPLIANT"])
 
         self.mutation_filter = QComboBox()
-        mutations = sorted(set(r.mutation_name for r in self.report.trace_reports))
+        mutations = sorted({
+            mutation_name
+            for grouped_report in self.grouped_reports
+            for mutation_name in grouped_report.mutation_names
+        })
         self.mutation_filter.addItem("ALL")
         self.mutation_filter.addItems(mutations)
 
@@ -258,14 +242,16 @@ class MutationReportWindow(QWidget):
         self.table.setHorizontalHeaderLabels([
             "Trace Target ID",
             "Applied Mutation Engine",
-            "AI Impact",
             "Audit Status",
+            "Findings Summary",
             "Violations Count",
             "Warnings Count"
         ])
         
         # Ajustes de comportamiento de tabla pro
-        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setAlternatingRowColors(True)
         self.table.setStyleSheet("QTableWidget { alternate-background-color: #1c2128; }")
@@ -278,11 +264,11 @@ class MutationReportWindow(QWidget):
         mutation_filter = self.mutation_filter.currentText()
 
         filtered = []
-        for report in self.report.trace_reports:
+        for report in self.grouped_reports:
             display_severity = TraceDetailDialog._display_severity(report.severity)
             if severity_filter != "ALL" and display_severity != severity_filter:
                 continue
-            if mutation_filter != "ALL" and report.mutation_name != mutation_filter:
+            if mutation_filter != "ALL" and mutation_filter not in report.mutation_names:
                 continue
             filtered.append(report)
 
@@ -292,7 +278,6 @@ class MutationReportWindow(QWidget):
         for row, report in enumerate(filtered):
             violations = len(report.validator_result["violations"])
             warnings = len(report.validator_result["warnings"])
-            impact = TraceDetailDialog._impact_text(report.validator_result)
             display_severity = TraceDetailDialog._display_severity(report.severity)
 
             # Trace ID (Centrado)
@@ -301,16 +286,8 @@ class MutationReportWindow(QWidget):
             
             # Mutation Name
             item_mut = QTableWidgetItem(report.mutation_name)
+            item_mut.setToolTip("\n".join(report.mutation_names))
 
-            item_impact = QTableWidgetItem(impact)
-            item_impact.setTextAlignment(Qt.AlignCenter)
-            if impact == "0_COMPLIANT":
-                item_impact.setForeground(Qt.GlobalColor.green)
-            elif impact == "1_VIOLATION":
-                item_impact.setForeground(Qt.GlobalColor.red)
-            elif impact == "2_WARNING":
-                item_impact.setForeground(Qt.GlobalColor.yellow)
-            
             # Status Badge Dinámico
             item_sev = QTableWidgetItem(f" ● {report.severity}")
             item_sev.setText(f" ● {display_severity}")
@@ -325,6 +302,9 @@ class MutationReportWindow(QWidget):
             item_sev.setFont(font_bold)
 
             # Violaciones (Centrado)
+            item_summary = QTableWidgetItem(TraceDetailDialog.issue_summary(report, max_items=2))
+            item_summary.setToolTip(TraceDetailDialog.issue_summary(report, max_items=20))
+
             item_v = QTableWidgetItem(str(violations))
             item_v.setTextAlignment(Qt.AlignCenter)
             if violations > 0:
@@ -338,12 +318,101 @@ class MutationReportWindow(QWidget):
 
             self.table.setItem(row, 0, item_id)
             self.table.setItem(row, 1, item_mut)
-            self.table.setItem(row, 2, item_impact)
-            self.table.setItem(row, 3, item_sev)
+            self.table.setItem(row, 2, item_sev)
+            self.table.setItem(row, 3, item_summary)
             self.table.setItem(row, 4, item_v)
             self.table.setItem(row, 5, item_w)
 
         self.table.resizeColumnsToContents()
+
+    @staticmethod
+    def _severity_rank(severity):
+        normalized = TraceDetailDialog._display_severity(severity)
+        return {
+            "COMPLIANT": 0,
+            "WARNING": 1,
+            "VIOLATION": 2,
+        }.get(normalized, 0)
+
+    @staticmethod
+    def _dedupe_issues(issues):
+        deduped = []
+        seen = set()
+
+        for issue in issues:
+            key = (
+                issue.get("rule"),
+                issue.get("event"),
+                issue.get("message"),
+                issue.get("mutation"),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(issue)
+
+        return deduped
+
+    def _group_reports_by_trace(self, trace_reports):
+        grouped = {}
+
+        for trace_report in trace_reports:
+            grouped.setdefault(trace_report.trace_id, []).append(trace_report)
+
+        aggregated = []
+        for trace_id, reports in grouped.items():
+            mutation_names = [report.mutation_name for report in reports]
+            violations = []
+            warnings = []
+            recommendation_parts = []
+
+            for report in reports:
+                for issue in report.validator_result.get("violations", []):
+                    merged_issue = dict(issue)
+                    merged_issue["mutation"] = report.mutation_name
+                    merged_issue["message"] = (
+                        f"[{report.mutation_name}] {merged_issue.get('message', '')}"
+                    )
+                    violations.append(merged_issue)
+
+                for issue in report.validator_result.get("warnings", []):
+                    merged_issue = dict(issue)
+                    merged_issue["mutation"] = report.mutation_name
+                    merged_issue["message"] = (
+                        f"[{report.mutation_name}] {merged_issue.get('message', '')}"
+                    )
+                    warnings.append(merged_issue)
+
+                recommendation_parts.append(
+                    f"{report.mutation_name}: {report.recommendation}"
+                )
+
+            violations = self._dedupe_issues(violations)
+            warnings = self._dedupe_issues(warnings)
+            severity = max(
+                (TraceDetailDialog._display_severity(report.severity) for report in reports),
+                key=self._severity_rank,
+                default="COMPLIANT",
+            )
+
+            mutation_label = "; ".join(mutation_names)
+            if len(mutation_label) > 90:
+                mutation_label = mutation_label[:87] + "..."
+
+            aggregated.append(SimpleNamespace(
+                trace_id=trace_id,
+                mutation_name=mutation_label,
+                mutation_names=mutation_names,
+                validator_result={
+                    "validation_mode": "deterministic",
+                    "violations": violations,
+                    "warnings": warnings,
+                },
+                severity=severity,
+                recommendation="\n\n".join(recommendation_parts),
+            ))
+
+        return sorted(aggregated, key=lambda item: str(item.trace_id))
 
     def _open_trace_detail(self, row, column):
         report = self.filtered_reports[row]

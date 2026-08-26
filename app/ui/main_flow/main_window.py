@@ -190,8 +190,6 @@ class MainWindow(QMainWindow):
         self.gdpr_model_name = None
         
         self.reset_button.setVisible(False)
-        self.enrichment_view.export_button.setEnabled(False)
-        
         self.enrichment_view.next_button.setEnabled(False)
         if hasattr(self.enrichment_view, '_update_next_button_style'):
             self.enrichment_view._update_next_button_style()
@@ -199,12 +197,6 @@ class MainWindow(QMainWindow):
         if hasattr(self.enrichment_view, 'reset_tabs'):
             self.enrichment_view.reset_tabs()
             
-        try:
-            self.mutation_view.export_mutated_button.setEnabled(False)
-        except AttributeError:
-            if hasattr(self.mutation_view, 'export_button'):
-                self.mutation_view.export_button.setEnabled(False)
-        
         self.mutation_view.clear_report_view()
         self.enrichment_view.file_label.setText("LOG: -")
         
@@ -276,8 +268,6 @@ class MainWindow(QMainWindow):
                 self.controller.get_last_activity_typing(),
                 self.controller.get_last_enrichment_context_summary()
             )
-            self.enrichment_view.export_button.setEnabled(True)
-            
             self.enrichment_view.next_button.setEnabled(True)
             if hasattr(self.enrichment_view, '_update_next_button_style'):
                 self.enrichment_view._update_next_button_style()
@@ -313,7 +303,6 @@ class MainWindow(QMainWindow):
 
             self.current_model = f"🧪 MUTATED · {self.current_model}"
             self.mutation_view.display_report(report)
-            self.mutation_view.export_mutated_button.setEnabled(True)
 
             self.statusBar().showMessage(
                 f"Mutations applied · {report.total_violations} violations · {report.total_warnings} warnings"

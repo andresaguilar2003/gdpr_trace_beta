@@ -33,169 +33,65 @@ from app.mutations.operators.semantic.modify_user_right_type_mutation import (
 )
 
 
-# ==========================================================
-# REGISTRY EXTENDED
-# ==========================================================
+def _named(mutation, name):
+    mutation.name = name
+    return mutation
+
 
 MUTATION_REGISTRY = {
-
-    # ======================================================
-    # STRUCTURAL (Nivel 1)
-    # ======================================================
-    # (Tus mutaciones existentes se mantienen...)
     "remove_verify_legal_basis": {
         "category": MutationCategory.STRUCTURAL,
         "factory": lambda: RemoveEventMutation("verify_legal_basis")
     },
-    "duplicate_verify_legal_basis": {
+    "duplicate_legal_basis": {
         "category": MutationCategory.STRUCTURAL,
-        "factory": lambda: DuplicateEventMutation("verify_legal_basis")
+        "factory": lambda: _named(DuplicateEventMutation("verify_legal_basis"), "duplicate_legal_basis")
     },
     "remove_check_consent": {
         "category": MutationCategory.STRUCTURAL,
         "factory": lambda: RemoveEventMutation("check_consent")
     },
-    "remove_privacy_notice": {
-        "category": MutationCategory.STRUCTURAL,
-        "factory": lambda: RemoveEventMutation("privacy_notice_disclosed")
-    },
-    "remove_encryption": {
-        "category": MutationCategory.STRUCTURAL,
-        "factory": lambda: RemoveEventMutation("encryption_applied")
-    },
-
-    # Para forzar la alerta de inserción incorrecta (Duplication) en CASE_END
-    "duplicate_confirm_data_erasure": {
-        "category": MutationCategory.STRUCTURAL,
-        "factory": lambda: DuplicateEventMutation("confirm_data_erasure")
-    },
-    # Mutación de Reemplazo (M4): Cambiar un evento crítico por un "falso positivo"
     "replace_encryption_with_retention": {
         "category": MutationCategory.STRUCTURAL,
         "factory": lambda: ReplaceEventMutation("encryption_applied", "retention_period_verify")
     },
 
-    "replace_consent_with_privacy_notice": {
-        "category": MutationCategory.STRUCTURAL,
-        "factory": lambda: ReplaceEventMutation("check_consent", "privacy_notice_disclosed")
-    },
-    
-    # M4.2: Reemplazar eliminación definitiva por marca de restricción temporal en derecho de supresión
-    "replace_erase_primary_record_with_mark_restricted": {
-        "category": MutationCategory.STRUCTURAL,
-        "factory": lambda: ReplaceEventMutation("erase_primary_record", "mark_data_as_restricted")
-    },
-    
-    # M4.3: Duplicar el control de acceso de seguridad para evaluar redundancias y tolerancia a ruido
-    "duplicate_access_control_check": {
-        "category": MutationCategory.STRUCTURAL,
-        "factory": lambda: DuplicateEventMutation("access_control_check")
-    },
-
-
-    # ======================================================
-    # TEMPORAL (Nivel 2)
-    # ======================================================
     "wrong_position_verify_legal_basis": {
         "category": MutationCategory.TEMPORAL,
-        "factory": lambda: WrongPositionMutation("verify_legal_basis")
+        "factory": lambda: _named(WrongPositionMutation("verify_legal_basis"), "wrong_position_verify_legal_basis")
     },
     "wrong_position_encryption": {
         "category": MutationCategory.TEMPORAL,
-        "factory": lambda: WrongPositionMutation("encryption_applied")
+        "factory": lambda: _named(WrongPositionMutation("encryption_applied"), "wrong_position_encryption")
     },
-    "swap_consent_and_collection": {
-        "category": MutationCategory.TEMPORAL,
-        "factory": lambda: SwapEventOrderMutation("check_consent", "record_purpose")
-    },
-
-    # Mueve 'privacy_notice_disclosed' ANTES de la recolección (Tu regla exige AFTER)
-    "swap_collection_and_privacy_notice": {
-        "category": MutationCategory.TEMPORAL,
-        "factory": lambda: SwapEventOrderMutation("DATA_COLLECTION", "privacy_notice_disclosed")
-    },
-    # Rompe el orden de los derechos de usuario: responder antes de verificar identidad
     "swap_identity_verification_and_response": {
         "category": MutationCategory.TEMPORAL,
-        "factory": lambda: SwapEventOrderMutation("verify_request_identity", "respond_user_right")
+        "factory": lambda: _named(SwapEventOrderMutation("verify_request_identity", "respond_user_right"), "swap_identity_verification_and_response")
     },
 
-    # M4.4: Enviar datos antes de verificar que existe un contrato/acuerdo firmado con el tercero
-    "swap_third_party_agreement_and_transfer": {
-        "category": MutationCategory.TEMPORAL,
-        "factory": lambda: SwapEventOrderMutation("check_third_party_agreement", "DATA_TRANSFER")
-    },
-    
-    # M4.5: Procesar y registrar la actividad antes de aplicar el chequeo de minimización de datos
-    "swap_minimisation_check_and_processing": {
-        "category": MutationCategory.TEMPORAL,
-        "factory": lambda: SwapEventOrderMutation("minimisation_check", "log_processing_activity")
-    },
-
-
-    # ======================================================
-    # CONTEXTUAL (Nivel 3)
-    # ======================================================
-    # (Tus mutaciones existentes se mantienen...)
     "change_legal_basis_to_contract": {
         "category": MutationCategory.CONTEXTUAL,
-        "factory": lambda: ModifyLegalBasisMutation("contract")
+        "factory": lambda: _named(ModifyLegalBasisMutation("contract"), "change_legal_basis_to_contract")
     },
     "change_data_category_to_standard": {
         "category": MutationCategory.CONTEXTUAL,
-        "factory": lambda: ModifyDataCategoryMutation("DataCategory.STANDARD")
+        "factory": lambda: _named(ModifyDataCategoryMutation("DataCategory.STANDARD"), "change_data_category_to_standard")
     },
-    "change_data_category_to_health": {
-        "category": MutationCategory.CONTEXTUAL,
-        "factory": lambda: ModifyDataCategoryMutation("DataCategory.HEALTH")
-    },
-
-    # --- NUEVAS CONTEXTUALES BASADAS EN TU VALIDADOR ---
-    # Cambia la categoría a SPECIAL para disparar la obligación de access_control_check
-    "change_data_category_to_special": {
-        "category": MutationCategory.CONTEXTUAL,
-        "factory": lambda: ModifyDataCategoryMutation("DataCategory.SPECIAL")
-    },
-    # Pone a False los destinatarios externos para evaluar la advertencia DATA_TRANSFER_THIRD_PARTY_FORBIDDEN
     "modify_context_third_party_to_false": {
         "category": MutationCategory.CONTEXTUAL,
-        "factory": lambda: ModifyContextFieldMutation("has_third_party_recipients", False)
-    },
-    # Fuerza a True los destinatarios externos en una traza limpia para exigir contratos
-    "modify_context_third_party_to_true": {
-        "category": MutationCategory.CONTEXTUAL,
-        "factory": lambda: ModifyContextFieldMutation("has_third_party_recipients", True)
-    },
-    # Cambia transferencia internacional a 'third_country' para exigir salvaguardas (DATA_TRANSFER_INTERNATIONAL_REQUIRED)
-    "modify_context_international_to_third_country": {
-        "category": MutationCategory.CONTEXTUAL,
-        "factory": lambda: ModifyContextFieldMutation("international_transfer", "third_country")
-    },
-    # Limpia el periodo de retención en el contexto para hacer saltar CASE_END_MISSING_RETENTION_CONTEXT
-    "clear_context_retention_period": {
-        "category": MutationCategory.CONTEXTUAL,
-        "factory": lambda: ModifyContextFieldMutation("retention_period", None)
+        "factory": lambda: _named(ModifyContextFieldMutation("has_third_party_recipients", False), "modify_context_third_party_to_false")
     },
 
-
-    # ======================================================
-    # SEMANTIC / COMPLIANCE CHAINS (Nivel 4)
-    # ======================================================
-    
-    # Rompe el flujo secuencial inicial: coloca verify_legal_basis DESPUÉS de un DATA_COLLECTION
     "break_initial_compliance_chain": {
         "category": MutationCategory.SEMANTIC,
-        "factory": lambda: BreakInitialChainMutation()
+        "factory": lambda: _named(BreakInitialChainMutation(), "break_initial_compliance_chain")
     },
-    # Modifica el subtipo de derecho de usuario (UserRightType) para dejar los eventos huérfanos de su lógica específica
-    # Ej: Un evento de Rectificación al que se le quitan los flujos obligatorios de propagación a réplicas.
     "corrupt_user_right_type_to_erasure": {
         "category": MutationCategory.SEMANTIC,
-        "factory": lambda: ModifyUserRightTypeMutation(to_type="UserRightType.ERASURE")
+        "factory": lambda: _named(ModifyUserRightTypeMutation(to_type="UserRightType.ERASURE"), "corrupt_user_right_type_to_erasure")
     },
-    # Incumplimiento Parcial de Cadena en Eliminación: Mantener record_retention_period pero eliminar la purga real
     "incomplete_deletion_chain": {
         "category": MutationCategory.SEMANTIC,
-        "factory": lambda: RemoveEventMutation("erase_data")
+        "factory": lambda: _named(RemoveEventMutation("erase_data"), "incomplete_deletion_chain")
     }
 }

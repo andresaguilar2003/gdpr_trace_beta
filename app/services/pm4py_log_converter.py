@@ -1,5 +1,14 @@
 from pm4py.objects.log.obj import EventLog, Trace, Event
 
+
+def _event_activity_type(event):
+    activity_type = getattr(event, "activity_type", None)
+    if activity_type is not None:
+        return activity_type
+
+    activity = getattr(event, "activity", None)
+    return getattr(activity, "type", None) or getattr(activity, "activity_type", None)
+
 def traces_to_pm4py_log(traces, context=None):
 
     log = EventLog()
@@ -60,21 +69,28 @@ def traces_to_pm4py_log(traces, context=None):
                 event["graph:activity"] = e.name
             else:
                 # 👉 evento original
-                event["graph:activity"] = getattr(e, "activity_type", e.name)
+                event["graph:activity"] = _event_activity_type(e) or e.name
 
             event["time:timestamp"] = e.timestamp
 
             # 🔥 tipado SIEMPRE separado
-            if hasattr(e.activity_type, "name"):
-                event["gdpr:activity_type"] = e.activity_type.name
+            activity_type = _event_activity_type(e)
+            if hasattr(activity_type, "name"):
+                event["gdpr:activity_type"] = activity_type.name
             else:
-                event["gdpr:activity_type"] = str(e.activity_type)
+                event["gdpr:activity_type"] = str(activity_type)
 
             if hasattr(e, "user_right_type") and e.user_right_type:
                 event["gdpr:user_right_type"] = e.user_right_type.name
 
             if hasattr(e, "data_fields") and e.data_fields:
                 event["gdpr:data_fields"] = ",".join(e.data_fields)
+
+            if hasattr(e, "position") and e.position is not None:
+                if hasattr(e.position, "name"):
+                    event["gdpr:position"] = e.position.name
+                else:
+                    event["gdpr:position"] = str(e.position).split(".")[-1].upper()
 
             trace.append(event)
 

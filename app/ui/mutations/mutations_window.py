@@ -9,15 +9,11 @@ from PySide6.QtWidgets import (
     QFrame,
     QComboBox,
     QHBoxLayout,
-    QRadioButton,
-    QSpinBox
 )
 
 from app.mutations.registry.mutation_registry import MUTATION_REGISTRY
 from app.mutations.base.mutation_category import MutationCategory
-from app.mutations.services.random_mutation_generator import RandomMutationGenerator
 from app.ui.mutations.mutation_config_widget import MutationConfigWidget
-from app.ui.mutations.random_mutation_widget import RandomMutationWidget
 from app.ui.main_flow.styles import STYLE
 
 
@@ -28,7 +24,6 @@ class MutationsWindow(QWidget):
         super().__init__()
         self.total_traces = total_traces
         self.widgets = []
-        self.random_widgets = []
         
         # 💡 Única fuente de verdad limpia
         self.mutation_state = {}
@@ -38,8 +33,6 @@ class MutationsWindow(QWidget):
                 "range": (0, total_traces - 1)
             }
             
-        self.generated_mutations = []
-
         self.setWindowTitle("Mutation Engine")
         self.resize(1000, 850)
         
@@ -60,23 +53,12 @@ class MutationsWindow(QWidget):
         title.setObjectName("BlockTitle")
         main_layout.addWidget(title)
 
-        # MODE PANEL
-        mode_frame = QFrame()
-        mode_frame.setObjectName("ModeBlock")
-        mode_layout = QHBoxLayout(mode_frame)
-        mode_layout.setContentsMargins(16, 12, 16, 12)
-        mode_layout.setSpacing(20)
-
-        self.manual_mode = QRadioButton("Manual Selection")
-        self.random_mode = QRadioButton("Random Generation")
-        self.manual_mode.setChecked(True)
-
-        mode_layout.addWidget(self.manual_mode)
-        mode_layout.addWidget(self.random_mode)
-        mode_layout.addStretch()
-        main_layout.addWidget(mode_frame)
-
-        self.manual_mode.toggled.connect(self._switch_mode)
+        mode_label = QLabel("Manual mutation selection")
+        mode_label.setStyleSheet(
+            "color: #9fb3c8; font-weight: bold; padding: 8px; "
+            "background-color: #12161f; border: 1px solid #30363d; border-radius: 6px;"
+        )
+        main_layout.addWidget(mode_label)
 
         # MANUAL PANEL
         self.manual_panel = QFrame()
@@ -111,60 +93,6 @@ class MutationsWindow(QWidget):
         manual_layout.addWidget(self.scroll)
         main_layout.addWidget(self.manual_panel)
 
-        # RANDOM PANEL
-        self.random_panel = QFrame()
-        self.random_panel.setObjectName("MainContainerPanel")
-        random_layout = QVBoxLayout(self.random_panel)
-        random_layout.setContentsMargins(0, 0, 0, 0)
-        random_layout.setSpacing(14)
-
-        config_row = QHBoxLayout()
-        config_row.setSpacing(15)
-        
-        rand_label = QLabel("Number of random mutations:")
-        self.random_count = QSpinBox()
-        self.random_count.setMinimum(1)
-        self.random_count.setMaximum(len(MUTATION_REGISTRY) if MUTATION_REGISTRY else 1)
-        
-        config_row.addWidget(rand_label)
-        config_row.addWidget(self.random_count)
-        config_row.addStretch()
-        random_layout.addLayout(config_row)
-
-        radio_row = QHBoxLayout()
-        radio_row.setSpacing(20)
-        self.random_global = QRadioButton("Apply mutations to entire dataset")
-        self.random_custom = QRadioButton("Configure trace ranges manually")
-        self.random_global.setChecked(True)
-        radio_row.addWidget(self.random_global)
-        radio_row.addWidget(self.random_custom)
-        radio_row.addStretch()
-        random_layout.addLayout(radio_row)
-
-        self.generate_button = QPushButton("Generate Random Mutations")
-        self.generate_button.setObjectName("SecondaryButton")
-        self.generate_button.clicked.connect(self._generate_random_mutations)
-        
-        gen_btn_layout = QHBoxLayout()
-        gen_btn_layout.addWidget(self.generate_button)
-        gen_btn_layout.addStretch()
-        random_layout.addLayout(gen_btn_layout)
-
-        # Zona Scroll Random
-        self.random_scroll = QScrollArea()
-        self.random_scroll.setWidgetResizable(True)
-        self.random_content = QFrame()
-        self.random_content.setObjectName("ScrollContent")
-        self.random_container = QVBoxLayout(self.random_content)
-        self.random_container.setContentsMargins(12, 12, 12, 12)
-        self.random_container.setSpacing(10)
-        
-        self.random_scroll.setWidget(self.random_content)
-        random_layout.addWidget(self.random_scroll)
-        
-        main_layout.addWidget(self.random_panel)
-        self.random_panel.hide()
-
         # APPLY FOOTER
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
@@ -181,11 +109,6 @@ class MutationsWindow(QWidget):
     # =====================================================
     # LOGIC & EVENTS
     # =====================================================
-
-    def _switch_mode(self):
-        manual = self.manual_mode.isChecked()
-        self.manual_panel.setVisible(manual)
-        self.random_panel.setVisible(not manual)
 
     def _clear_layout(self, layout):
         """Helper seguro para vaciar layouts eliminando widgets y espaciadores por igual."""
@@ -256,57 +179,18 @@ class MutationsWindow(QWidget):
 
         self.container_layout.addStretch()
 
-    def _generate_random_mutations(self):
-        self._clear_layout(self.random_container)
-        self.random_widgets.clear()
-        
-        count = self.random_count.value()
-        self.generated_mutations = RandomMutationGenerator.generate(count)
-
-        if self.random_global.isChecked():
-            for mutation in self.generated_mutations:
-                lbl = QLabel(f" ✓   {mutation}")
-                lbl.setStyleSheet("color: #00ffaa; font-weight: bold; font-size: 13px; padding: 4px;")
-                self.random_container.addWidget(lbl)
-        else:
-            for mutation in self.generated_mutations:
-                widget = RandomMutationWidget(mutation, self.total_traces)
-                widget.setStyleSheet(STYLE)
-                self.random_widgets.append(widget)
-                self.random_container.addWidget(widget)
-                
-        self.random_container.addStretch()
-
     def _apply_mutations(self):
         configs = []
-        if self.manual_mode.isChecked():
-            # Extraemos los datos directamente de la memoria centralizada y estática
-            for mutation_name, state in self.mutation_state.items():
-                if not state["selected"]:
-                    continue
-                
-                start, end = state["range"]
-                configs.append({
-                    "mutation": mutation_name,
-                    "start": start,
-                    "end": end
-                })
-        else:
-            if self.random_global.isChecked():
-                for mutation in self.generated_mutations:
-                    configs.append({
-                        "mutation": mutation,
-                        "start": 0,
-                        "end": self.total_traces - 1
-                    })
-            else:
-                for widget in self.random_widgets:
-                    start, end = widget.get_range()
-                    configs.append({
-                        "mutation": widget.mutation_name,
-                        "start": start,
-                        "end": end
-                    })
+        for mutation_name, state in self.mutation_state.items():
+            if not state["selected"]:
+                continue
+            
+            start, end = state["range"]
+            configs.append({
+                "mutation": mutation_name,
+                "start": start,
+                "end": end
+            })
 
         self.mutations_applied.emit(configs)
         self.close()

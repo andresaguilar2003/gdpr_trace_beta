@@ -97,131 +97,6 @@ class NodeMetricsPopover(QDialog):
         self.close()
 
 
-class EnrichmentSuccessDialog(QDialog):
-    """Diálogo personalizado y vistoso para notificar el éxito del enriquecimiento."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Pipeline Execution Status")
-        self.setFixedSize(500, 320)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #0d1117;
-                border: 1px solid #30363d;
-                border-radius: 8px;
-            }
-            QLabel {
-                background: transparent;
-            }
-        """)
-        
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(25, 25, 25, 25)
-        layout.setSpacing(18)
-        
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(8)
-        
-        icon_label = QLabel("✨")
-        icon_label.setFixedWidth(40)
-        icon_label.setStyleSheet("font-size: 34px; qproperty-alignment: 'AlignLeft | AlignVCenter';")
-        
-        text_layout = QVBoxLayout()
-        text_layout.setSpacing(4)
-        title_label = QLabel("ENRICHMENT COMPLETE")
-        title_label.setStyleSheet("font-size: 16px; font-weight: 800; color: #00ffaa; letter-spacing: 0.5px;")
-        
-        subtitle_label = QLabel("Programmatic privacy control checkpoints successfully injected via OCL Core.")
-        subtitle_label.setStyleSheet("font-size: 12px; color: #8b949e;")
-        subtitle_label.setWordWrap(True)
-        
-        text_layout.addWidget(title_label)
-        text_layout.addWidget(subtitle_label)
-        
-        header_layout.addWidget(icon_label)
-        header_layout.addLayout(text_layout)
-        layout.addLayout(header_layout)
-        
-        divider = QFrame()
-        divider.setFrameShape(QFrame.Shape.HLine)
-        divider.setStyleSheet("background-color: #21262d; max-height: 1px; border: none;")
-        layout.addWidget(divider)
-        
-        info_desc = QLabel("The target model has been updated with legal workflow constraints.")
-        info_desc.setStyleSheet("font-size: 12px; color: #c9d1d9; line-height: 1.4;")
-        info_desc.setWordWrap(True)
-        layout.addWidget(info_desc)
-        
-        actions_layout = QHBoxLayout()
-        actions_layout.setSpacing(12)
-        
-        self.btn_next = QPushButton("Proceed to Mutations\nChoose validation mode and inject faults")
-        self.btn_next.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_next.setStyleSheet("""
-            QPushButton {
-                background-color: #161b22;
-                color: #ffffff;
-                font-size: 12px;
-                font-weight: bold;
-                border: 1px solid #30363d;
-                border-radius: 6px;
-                padding: 14px;
-                text-align: center;
-            }
-            QPushButton:hover {
-                background-color: #1f242c;
-                border-color: #2ea44f;
-                color: #2ea44f;
-            }
-        """)
-        
-        self.btn_export = QPushButton("💾 Export Enriched Log\nSave current XES dataset structure")
-        self.btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_export.setStyleSheet("""
-            QPushButton {
-                background-color: #161b22;
-                color: #ffffff;
-                font-size: 12px;
-                font-weight: bold;
-                border: 1px solid #30363d;
-                border-radius: 6px;
-                padding: 14px;
-                text-align: center;
-            }
-            QPushButton:hover {
-                background-color: #1f242c;
-                border-color: #388bfd;
-                color: #388bfd;
-            }
-        """)
-        
-        actions_layout.addWidget(self.btn_next, stretch=1)
-        actions_layout.addWidget(self.btn_export, stretch=1)
-        layout.addLayout(actions_layout)
-        
-        self.btn_close = QPushButton("Dismiss")
-        self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_close.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                color: #8b949e;
-                font-size: 11px;
-                border: none;
-                padding: 4px;
-            }
-            QPushButton:hover {
-                color: #c9d1d9;
-                text-decoration: underline;
-            }
-        """)
-        layout.addWidget(self.btn_close, alignment=Qt.AlignmentFlag.AlignCenter)
-        
-        self.btn_next.clicked.connect(lambda: self.done(1))
-        self.btn_export.clicked.connect(lambda: self.done(2))
-        self.btn_close.clicked.connect(self.reject)
-
-
 class EnrichmentInfoDialog(QDialog):
     def __init__(self, typing_rows, context_summary, parent=None):
         super().__init__(parent)
@@ -315,7 +190,6 @@ class EnrichmentView(QWidget):
     def __init__(self, on_enrich, on_export, on_info, on_next, on_node_clicked=None):
         super().__init__()
         self.on_enrich_callback = on_enrich
-        self.on_export_callback = on_export
         self.on_next_callback = on_next
         self.on_node_clicked_callback = on_node_clicked
         
@@ -489,14 +363,7 @@ class EnrichmentView(QWidget):
         self.enrich_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.enrich_button.clicked.connect(self._handle_enrich_click)
 
-        self.export_button = QPushButton("💾 EXPORT ENRICHED LOG")
-        self.export_button.setObjectName("SecBtn")
-        self.export_button.setEnabled(False)
-        self.export_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.export_button.clicked.connect(on_export)
-
         panel_layout.addWidget(self.enrich_button)
-        panel_layout.addWidget(self.export_button)
         
         panel_layout.addSpacing(12)
         
@@ -849,8 +716,6 @@ class EnrichmentView(QWidget):
         
         self.tab_widget.setTabEnabled(1, True)
         self.tab_widget.setCurrentIndex(1)
-        
-        self._show_success_dialog()
 
     def reset_tabs(self):
         # Adaptado para limpiar el nuevo Tree Widget
@@ -858,15 +723,6 @@ class EnrichmentView(QWidget):
         self.tab_widget.setCurrentIndex(0)
         self.enrichment_tree.clear()
         self.enrichment_tree.addTopLevelItem(QTreeWidgetItem(["Ejecuta el enriquecimiento para ver los detalles."]))
-
-
-    def _show_success_dialog(self):
-        dialog = EnrichmentSuccessDialog(self)
-        result = dialog.exec()
-        if result == 1:
-            self.on_next_callback()
-        elif result == 2:
-            self.on_export_callback()
 
     def _update_next_button_style(self):
         if self.next_button.isEnabled():
