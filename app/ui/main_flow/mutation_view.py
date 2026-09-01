@@ -8,7 +8,6 @@ from PySide6.QtGui import QFont
 from types import SimpleNamespace
 
 from app.mutations.registry.mutation_registry import MUTATION_REGISTRY
-from app.mutations.base.mutation_category import MutationCategory
 from app.ui.mutations.mutation_config_widget import MutationConfigWidget
 from app.ui.mutations.mutation_report_window import TraceDetailDialog  # Diálogo de auditoría detallada
 from app.ui.main_flow.styles import STYLE
@@ -103,7 +102,7 @@ class MutationView(QWidget):
         cat_lbl = QLabel("Category:")
         cat_lbl.setStyleSheet("color: #8b949e; font-weight: bold;")
         self.category_combo = QComboBox()
-        self.category_combo.addItems([c.name for c in MutationCategory])
+        self.category_combo.addItems(self._available_category_names())
         self.category_combo.currentTextChanged.connect(self._reload_mutations)
         cat_row.addWidget(cat_lbl)
         cat_row.addWidget(self.category_combo)
@@ -204,6 +203,14 @@ class MutationView(QWidget):
             return
 
         self.on_open_mutations()
+
+    def _available_category_names(self):
+        categories = []
+        for data in MUTATION_REGISTRY.values():
+            category_name = data["category"].name
+            if category_name not in categories:
+                categories.append(category_name)
+        return categories
 
     def setup_mutation_config(self, model_name, total_traces):
         self.total_traces = total_traces

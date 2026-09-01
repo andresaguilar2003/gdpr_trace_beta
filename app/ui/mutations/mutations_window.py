@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
 )
 
 from app.mutations.registry.mutation_registry import MUTATION_REGISTRY
-from app.mutations.base.mutation_category import MutationCategory
 from app.ui.mutations.mutation_config_widget import MutationConfigWidget
 from app.ui.main_flow.styles import STYLE
 
@@ -73,7 +72,7 @@ class MutationsWindow(QWidget):
         category_row.addWidget(cat_label)
 
         self.category_combo = QComboBox()
-        self.category_combo.addItems([c.name for c in MutationCategory])
+        self.category_combo.addItems(self._available_category_names())
         self.category_combo.currentTextChanged.connect(self._reload_mutations)
         category_row.addWidget(self.category_combo)
         category_row.addStretch()
@@ -109,6 +108,14 @@ class MutationsWindow(QWidget):
     # =====================================================
     # LOGIC & EVENTS
     # =====================================================
+
+    def _available_category_names(self):
+        categories = []
+        for data in MUTATION_REGISTRY.values():
+            category_name = data["category"].name
+            if category_name not in categories:
+                categories.append(category_name)
+        return categories
 
     def _clear_layout(self, layout):
         """Helper seguro para vaciar layouts eliminando widgets y espaciadores por igual."""

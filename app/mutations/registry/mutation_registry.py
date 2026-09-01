@@ -18,18 +18,8 @@ from app.mutations.operators.temporal.wrong_position_mutation import (
     WrongPositionMutation
 )
 
-from app.mutations.operators.contextual.modify_legal_basis_mutation import (
-    ModifyLegalBasisMutation
-)
 from app.mutations.operators.contextual.modify_data_category_mutation import (
     ModifyDataCategoryMutation
-)
-
-from app.mutations.operators.semantic.break_initial_compliance_chain_mutation import (
-    BreakInitialChainMutation
-)
-from app.mutations.operators.semantic.modify_user_right_type_mutation import (
-    ModifyUserRightTypeMutation
 )
 
 
@@ -39,10 +29,6 @@ def _named(mutation, name):
 
 
 MUTATION_REGISTRY = {
-    "remove_verify_legal_basis": {
-        "category": MutationCategory.STRUCTURAL,
-        "factory": lambda: RemoveEventMutation("verify_legal_basis")
-    },
     "duplicate_legal_basis": {
         "category": MutationCategory.STRUCTURAL,
         "factory": lambda: _named(DuplicateEventMutation("verify_legal_basis"), "duplicate_legal_basis")
@@ -60,19 +46,11 @@ MUTATION_REGISTRY = {
         "category": MutationCategory.TEMPORAL,
         "factory": lambda: _named(WrongPositionMutation("verify_legal_basis"), "wrong_position_verify_legal_basis")
     },
-    "wrong_position_encryption": {
-        "category": MutationCategory.TEMPORAL,
-        "factory": lambda: _named(WrongPositionMutation("encryption_applied"), "wrong_position_encryption")
-    },
     "swap_identity_verification_and_response": {
         "category": MutationCategory.TEMPORAL,
         "factory": lambda: _named(SwapEventOrderMutation("verify_request_identity", "respond_user_right"), "swap_identity_verification_and_response")
     },
 
-    "change_legal_basis_to_contract": {
-        "category": MutationCategory.CONTEXTUAL,
-        "factory": lambda: _named(ModifyLegalBasisMutation("contract"), "change_legal_basis_to_contract")
-    },
     "change_data_category_to_standard": {
         "category": MutationCategory.CONTEXTUAL,
         "factory": lambda: _named(ModifyDataCategoryMutation("DataCategory.STANDARD"), "change_data_category_to_standard")
@@ -80,18 +58,5 @@ MUTATION_REGISTRY = {
     "modify_context_third_party_to_false": {
         "category": MutationCategory.CONTEXTUAL,
         "factory": lambda: _named(ModifyContextFieldMutation("has_third_party_recipients", False), "modify_context_third_party_to_false")
-    },
-
-    "break_initial_compliance_chain": {
-        "category": MutationCategory.SEMANTIC,
-        "factory": lambda: _named(BreakInitialChainMutation(), "break_initial_compliance_chain")
-    },
-    "corrupt_user_right_type_to_erasure": {
-        "category": MutationCategory.SEMANTIC,
-        "factory": lambda: _named(ModifyUserRightTypeMutation(to_type="UserRightType.ERASURE"), "corrupt_user_right_type_to_erasure")
-    },
-    "incomplete_deletion_chain": {
-        "category": MutationCategory.SEMANTIC,
-        "factory": lambda: _named(RemoveEventMutation("erase_data"), "incomplete_deletion_chain")
     }
 }
